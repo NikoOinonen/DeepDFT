@@ -1,0 +1,14 @@
+name: deepdft
+channels:
+  - pytorch
+  - nvidia
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.11
+  - numpy
+  - pytorch
+  - pytorch-cuda=12.1
+  - ase
+  - asap3
+  - lz4
