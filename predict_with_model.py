@@ -100,12 +100,17 @@ def ceil_float(x, step_size):
     return x - eps
 
 def load_atoms(atomspath, vacuum, grid_step):
-    atoms = ase.io.read(atomspath)
 
-    if np.any(atoms.get_pbc()):
-        atoms, grid_pos, origin = load_material(atoms, grid_step)
+    if atomspath.endswith(".npz"):
+        atoms, grid_pos, origin = load_npz(atomspath, grid_step)
     else:
-        atoms, grid_pos, origin = load_molecule(atoms, grid_step, vacuum)
+
+        atoms = ase.io.read(atomspath)
+
+        if np.any(atoms.get_pbc()):
+            atoms, grid_pos, origin = load_material(atoms, grid_step)
+        else:
+            atoms, grid_pos, origin = load_molecule(atoms, grid_step, vacuum)
 
     metadata = {"filename": atomspath}
     res = {
@@ -116,6 +121,23 @@ def load_atoms(atomspath, vacuum, grid_step):
     }
 
     return res
+
+def load_npz(atomspath, grid_step):
+
+    sample_npz = np.load(atomspath)
+    xyzs = sample_npz["xyz"]
+    Zs = sample_npz["Z"]
+    lattice = sample_npz["lattice"]
+    origin = sample_npz["origin"]
+    sample_npz.close()
+
+    xyzs -= origin
+
+    atoms = ase.Atoms(numbers=Zs, positions=xyzs, cell=lattice)
+    grid_pos = LazyMeshGrid(atoms.get_cell(), grid_step)
+    origin = np.zeros(3)
+
+    return atoms, grid_pos, origin
 
 def load_material(atoms, grid_step):
     atoms = atoms.copy()
