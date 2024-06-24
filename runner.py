@@ -1,4 +1,6 @@
 import os
+from pathlib import Path
+import pickle
 import sys
 import json
 import argparse
@@ -207,20 +209,30 @@ def main():
     with open(os.path.join(args.output_dir, "arguments.json"), "w") as f:
         json.dump(vars(args), f)
 
-    # Setup dataset and loader
-    if args.dataset.endswith(".txt"):
-    # Text file contains list of datafiles
-        with open(args.dataset, "r") as datasetfiles:
-            filelist = [os.path.join(os.path.dirname(args.dataset), line.strip('\n')) for line in datasetfiles]
-    else:
-        filelist = [args.dataset]
+    # # Setup dataset and loader
+    # if args.dataset.endswith(".txt"):
+    # # Text file contains list of datafiles
+    #     with open(args.dataset, "r") as datasetfiles:
+    #         filelist = [os.path.join(os.path.dirname(args.dataset), line.strip('\n')) for line in datasetfiles]
+    # else:
+    #     filelist = [args.dataset]
 
-    logging.info("loading data %s", args.dataset)
-    densitydata = torch.utils.data.ConcatDataset([dataset.DensityData(path) for path in filelist])
+    # logging.info("loading data %s", args.dataset)
+    # densitydata = torch.utils.data.ConcatDataset([dataset.DensityData(path) for path in filelist])
 
-    # Split data into train and validation sets
-    datasplits = split_data(densitydata, args)
-    datasplits["train"] = dataset.RotatingPoolData(datasplits["train"], 20)
+    # # Split data into train and validation sets
+    # datasplits = split_data(densitydata, args)
+    # datasplits["train"] = dataset.RotatingPoolData(datasplits["train"], 20)
+
+    # Setup datasets
+    with open(args.split_file, "rb") as f:
+        sample_dict = pickle.load(f)
+    samples_train, samples_val = [sample_dict[s] for s in ["train", "val"]]
+    data_dir = Path(args.dataset)
+    datasplits = {
+        "train": dataset.DensityDataNpz(data_dir, samples_train),
+        "validation": dataset.DensityDataNpz(data_dir, samples_val),
+    }
 
     if args.ignore_pbc and args.force_pbc:
         raise ValueError("ignore_pbc and force_pbc are mutually exclusive and can't both be set at the same time")
@@ -263,7 +275,7 @@ def main():
     scheduler_fn = lambda step: 0.96 ** (step / 100000)
     scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, scheduler_fn)
 
-    log_interval = 5000
+    log_interval = 1000
     running_loss = torch.tensor(0.0, device=device)
     running_loss_count = torch.tensor(0, device=device)
     best_val_mae = np.inf

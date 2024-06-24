@@ -2,6 +2,7 @@
 __pycache__/
 
 model_prediction/
+runs/
 printlog.txt
 *.pickle
 *.xsf

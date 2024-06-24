@@ -1,3 +1,4 @@
+from pathlib import Path
 from typing import List, Optional
 import gzip
 import tarfile
@@ -190,6 +191,38 @@ class DensityDataTar(torch.utils.data.Dataset):
             index = self.key_to_idx[index]
         return self.extract_member(self.member_list[index])
 
+
+class DensityDataNpz(torch.utils.data.Dataset):
+
+    def __init__(self, data_dir: Path, sample_paths: list[Path]):
+        self.sample_paths = [data_dir / p for p in sample_paths]
+
+    def __len__(self) -> int:
+        return len(self.sample_paths)
+
+    def __getitem__(self, index: int) -> dict[str, np.ndarray]:
+
+        sample_path = self.sample_paths[index]
+        sample_npz = np.load(sample_path)
+        density = sample_npz["data"]
+        xyzs = sample_npz["xyz"]
+        Zs = sample_npz["Z"]
+        lattice = sample_npz["lattice"]
+        origin = sample_npz["origin"]
+        sample_npz.close()
+
+        atoms = ase.Atoms(numbers=Zs, positions=xyzs, cell=lattice)
+        grid_pos = _calculate_grid_pos(density, origin, atoms.get_cell())
+
+        sample = {
+            "density": density,
+            "atoms": atoms,
+            "origin": origin,
+            "grid_position": grid_pos,
+            "metadata": {"filename": sample_path},
+        }
+
+        return sample
 
 class AseNeigborListWrapper:
     """
