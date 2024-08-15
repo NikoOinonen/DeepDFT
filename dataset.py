@@ -23,7 +23,10 @@ import ase.units
 from ase.calculators.vasp import VaspChargeDensity
 import asap3
 
+from scipy.spatial.distance import cdist
+
 from layer import pad_and_stack
+
 
 def _cell_heights(cell_object):
     volume = cell_object.volume
@@ -58,10 +61,7 @@ class RotatingPoolData(torch.utils.data.Dataset):
         self.rng = np.random.default_rng()
         logging.debug("Filling rotating data pool of size %d" % pool_size)
         self.data_pool = [
-            self.parent_data[i]
-            for i in self.rng.integers(
-                0, high=len(self.parent_data), size=self.pool_size, endpoint=False
-            ).tolist()
+            self.parent_data[i] for i in self.rng.integers(0, high=len(self.parent_data), size=self.pool_size, endpoint=False).tolist()
         ]
         self.loader_queue = multiprocessing.Queue(2)
 
@@ -70,9 +70,7 @@ class RotatingPoolData(torch.utils.data.Dataset):
             target=rotating_pool_worker,
             args=(self.parent_data, self.rng, self.loader_queue),
         )
-        self.transfer_thread = threading.Thread(
-            target=transfer_thread, args=(self.loader_queue, self.data_pool)
-        )
+        self.transfer_thread = threading.Thread(target=transfer_thread, args=(self.loader_queue, self.data_pool))
         self.loader_process.start()
         self.transfer_thread.start()
 
@@ -99,6 +97,7 @@ class BufferData(torch.utils.data.Dataset):
     def __getitem__(self, index):
         return self.data_objects[index]
 
+
 class DensityData(torch.utils.data.Dataset):
     def __init__(self, datapath, **kwargs):
         super().__init__(**kwargs)
@@ -108,11 +107,13 @@ class DensityData(torch.utils.data.Dataset):
             self.data = DensityDataDir(datapath)
         else:
             raise ValueError("Did not find dataset at path %s", datapath)
+
     def __len__(self):
         return len(self.data)
 
     def __getitem__(self, index):
         return self.data[index]
+
 
 class DensityDataDir(torch.utils.data.Dataset):
     def __init__(self, directory, **kwargs):
@@ -120,7 +121,7 @@ class DensityDataDir(torch.utils.data.Dataset):
 
         self.directory = directory
         self.member_list = sorted(os.listdir(self.directory))
-        self.key_to_idx = {str(k): i for i,k in enumerate(self.member_list)}
+        self.key_to_idx = {str(k): i for i, k in enumerate(self.member_list)}
 
     def __len__(self):
         return len(self.member_list)
@@ -142,7 +143,7 @@ class DensityDataDir(torch.utils.data.Dataset):
             "atoms": atoms,
             "origin": origin,
             "grid_position": grid_pos,
-            "metadata": metadata, # Meta information
+            "metadata": metadata,  # Meta information
         }
 
     def __getitem__(self, index):
@@ -162,7 +163,7 @@ class DensityDataTar(torch.utils.data.Dataset):
         with tarfile.open(self.tarpath, "r:") as tar:
             for member in tar.getmembers():
                 self.member_list.append(member)
-        self.key_to_idx = {str(k): i for i,k in enumerate(self.member_list)}
+        self.key_to_idx = {str(k): i for i, k in enumerate(self.member_list)}
 
     def __len__(self):
         return len(self.member_list)
@@ -183,7 +184,7 @@ class DensityDataTar(torch.utils.data.Dataset):
             "atoms": atoms,
             "origin": origin,
             "grid_position": grid_pos,
-            "metadata": metadata, # Meta information
+            "metadata": metadata,  # Meta information
         }
 
     def __getitem__(self, index):
@@ -224,6 +225,7 @@ class DensityDataNpz(torch.utils.data.Dataset):
 
         return sample
 
+
 class AseNeigborListWrapper:
     """
     Wrapper around ASE neighborlist to have the same interface as asap3 neighborlist
@@ -231,28 +233,18 @@ class AseNeigborListWrapper:
     """
 
     def __init__(self, cutoff, atoms):
-        self.neighborlist = ase.neighborlist.NewPrimitiveNeighborList(
-            cutoff, skin=0.0, self_interaction=False, bothways=True
-        )
-        self.neighborlist.build(
-            atoms.get_pbc(), atoms.get_cell(), atoms.get_positions()
-        )
+        self.neighborlist = ase.neighborlist.NewPrimitiveNeighborList(cutoff, skin=0.0, self_interaction=False, bothways=True)
+        self.neighborlist.build(atoms.get_pbc(), atoms.get_cell(), atoms.get_positions())
         self.cutoff = cutoff
         self.atoms_positions = atoms.get_positions()
         self.atoms_cell = atoms.get_cell()
 
     def get_neighbors(self, i, cutoff):
-        assert (
-            cutoff == self.cutoff
-        ), "Cutoff must be the same as used to initialise the neighborlist"
+        assert cutoff == self.cutoff, "Cutoff must be the same as used to initialise the neighborlist"
 
         indices, offsets = self.neighborlist.get_neighbors(i)
 
-        rel_positions = (
-            self.atoms_positions[indices]
-            + offsets @ self.atoms_cell
-            - self.atoms_positions[i][None]
-        )
+        rel_positions = self.atoms_positions[indices] + offsets @ self.atoms_cell - self.atoms_positions[i][None]
 
         dist2 = np.sum(np.square(rel_positions), axis=1)
 
@@ -276,6 +268,7 @@ def grid_iterator_worker(atoms, meshgrid, probe_count, cutoff, slice_id_queue, r
         res = DensityGridIterator.static_get_slice(slice_id, atoms, meshgrid, probe_count, cutoff, neighborlist=neighborlist)
         result_queue.put((slice_id, res))
 
+
 class DensityGridIterator:
     def __init__(self, densitydict, probe_count: int, cutoff: float, set_pbc_to: Optional[bool] = None):
         num_positions = np.prod(densitydict["grid_position"].shape[0:3])
@@ -298,14 +291,14 @@ class DensityGridIterator:
     @staticmethod
     def static_get_slice(slice_index, atoms, meshgrid, probe_count, cutoff, neighborlist=None):
         num_positions = np.prod(meshgrid.shape[0:3])
-        flat_index = np.arange(slice_index*probe_count, min((slice_index+1)*probe_count, num_positions))
+        flat_index = np.arange(slice_index * probe_count, min((slice_index + 1) * probe_count, num_positions))
         pos_index = np.unravel_index(flat_index, meshgrid.shape[0:3])
         probe_pos = meshgrid[pos_index]
         probe_edges, probe_edges_displacement = probes_to_graph(atoms, probe_pos, cutoff, neighborlist)
 
         if not probe_edges:
-            probe_edges = [np.zeros((0,2), dtype=np.int)]
-            probe_edges_displacement = [np.zeros((0,3), dtype=np.float32)]
+            probe_edges = [np.zeros((0, 2), dtype=np.int)]
+            probe_edges_displacement = [np.zeros((0, 3), dtype=np.float32)]
 
         res = {
             "probe_edges": np.concatenate(probe_edges, axis=0),
@@ -317,7 +310,6 @@ class DensityGridIterator:
 
         return res
 
-
     def __iter__(self):
         self.current_slice = 0
         slice_id_queue = multiprocessing.Queue()
@@ -325,7 +317,13 @@ class DensityGridIterator:
         self.finished_slices = dict()
         for i in range(self.num_slices):
             slice_id_queue.put(i)
-        self.workers = [multiprocessing.Process(target=grid_iterator_worker, args=(self.atoms, self.meshgrid, self.probe_count, self.cutoff, slice_id_queue, self.result_queue)) for _ in range(6)]
+        self.workers = [
+            multiprocessing.Process(
+                target=grid_iterator_worker,
+                args=(self.atoms, self.meshgrid, self.probe_count, self.cutoff, slice_id_queue, self.result_queue),
+            )
+            for _ in range(6)
+        ]
         for w in self.workers:
             w.start()
         return self
@@ -338,7 +336,7 @@ class DensityGridIterator:
             # Retrieve finished slices until we get the one we are looking for
             while this_slice not in self.finished_slices:
                 i, res = self.result_queue.get()
-                res = {k: torch.tensor(v) for k,v in res.items()} # convert to torch tensor
+                res = {k: torch.tensor(v) for k, v in res.items()}  # convert to torch tensor
                 self.finished_slices[i] = res
             return self.finished_slices.pop(this_slice)
         else:
@@ -347,13 +345,31 @@ class DensityGridIterator:
             raise StopIteration
 
 
-def atoms_and_probe_sample_to_graph_dict(density, atoms, grid_pos, cutoff, num_probes):
+def atoms_and_probe_sample_to_graph_dict(density, atoms, grid_pos, cutoff, num_probes, core_cutoff=None):
     # Sample probes on the calculated grid
-    probe_choice_max = np.prod(grid_pos.shape[0:3])
-    probe_choice = np.random.randint(probe_choice_max, size=num_probes)
-    probe_choice = np.unravel_index(probe_choice, grid_pos.shape[0:3])
-    probe_pos = grid_pos[probe_choice]
-    probe_target = density[probe_choice]
+    probe_pos = []
+    probe_target = []
+    total_points = 0
+    while True:
+        probe_choice_max = np.prod(grid_pos.shape[0:3])
+        probe_choice = np.random.randint(probe_choice_max, size=(num_probes - total_points))
+        probe_choice = np.unravel_index(probe_choice, grid_pos.shape[0:3])
+        probe_pos_candidate = grid_pos[probe_choice]
+        if core_cutoff:
+            dist = cdist(probe_pos_candidate, atoms.get_positions())
+            mask = np.all(dist > core_cutoff, axis=1)
+            probe_choice = tuple(p[mask] for p in probe_choice)
+            probe_pos.append(grid_pos[probe_choice])
+            probe_target.append(density[probe_choice])
+            total_points += probe_choice[0].shape[0]
+            if total_points == num_probes:
+                probe_pos = np.concatenate(probe_pos, axis=0)
+                probe_target = np.concatenate(probe_target, axis=0)
+                break
+        else:
+            probe_pos = probe_pos_candidate
+            probe_target = density[probe_choice]
+            break
 
     atom_edges, atom_edges_displacement, neighborlist, inv_cell_T = atoms_to_graph(atoms, cutoff)
     probe_edges, probe_edges_displacement = probes_to_graph(atoms, probe_pos, cutoff, neighborlist=neighborlist, inv_cell_T=inv_cell_T)
@@ -361,19 +377,15 @@ def atoms_and_probe_sample_to_graph_dict(density, atoms, grid_pos, cutoff, num_p
     default_type = torch.get_default_dtype()
 
     if not probe_edges:
-        probe_edges = [np.zeros((0,2), dtype=np.int)]
-        probe_edges_displacement = [np.zeros((0,3), dtype=np.int)]
+        probe_edges = [np.zeros((0, 2), dtype=np.int)]
+        probe_edges_displacement = [np.zeros((0, 3), dtype=np.int)]
     # pylint: disable=E1102
     res = {
         "nodes": torch.tensor(atoms.get_atomic_numbers()),
         "atom_edges": torch.tensor(np.concatenate(atom_edges, axis=0)),
-        "atom_edges_displacement": torch.tensor(
-            np.concatenate(atom_edges_displacement, axis=0), dtype=default_type
-        ),
+        "atom_edges_displacement": torch.tensor(np.concatenate(atom_edges_displacement, axis=0), dtype=default_type),
         "probe_edges": torch.tensor(np.concatenate(probe_edges, axis=0)),
-        "probe_edges_displacement": torch.tensor(
-            np.concatenate(probe_edges_displacement, axis=0), dtype=default_type
-        ),
+        "probe_edges_displacement": torch.tensor(np.concatenate(probe_edges_displacement, axis=0), dtype=default_type),
         "probe_target": torch.tensor(probe_target, dtype=default_type),
     }
     res["num_nodes"] = torch.tensor(res["nodes"].shape[0])
@@ -386,6 +398,7 @@ def atoms_and_probe_sample_to_graph_dict(density, atoms, grid_pos, cutoff, num_p
 
     return res
 
+
 def atoms_to_graph_dict(atoms, cutoff):
     atom_edges, atom_edges_displacement, _, _ = atoms_to_graph(atoms, cutoff)
 
@@ -395,9 +408,7 @@ def atoms_to_graph_dict(atoms, cutoff):
     res = {
         "nodes": torch.tensor(atoms.get_atomic_numbers()),
         "atom_edges": torch.tensor(np.concatenate(atom_edges, axis=0)),
-        "atom_edges_displacement": torch.tensor(
-            np.concatenate(atom_edges_displacement, axis=0), dtype=default_type
-        ),
+        "atom_edges_displacement": torch.tensor(np.concatenate(atom_edges_displacement, axis=0), dtype=default_type),
     }
     res["num_nodes"] = torch.tensor(res["nodes"].shape[0])
     res["num_atom_edges"] = torch.tensor(res["atom_edges"].shape[0])
@@ -406,6 +417,7 @@ def atoms_to_graph_dict(atoms, cutoff):
 
     return res
 
+
 def atoms_to_graph(atoms, cutoff):
     atom_edges = []
     atom_edges_displacement = []
@@ -413,13 +425,7 @@ def atoms_to_graph(atoms, cutoff):
     inv_cell_T = np.linalg.inv(atoms.get_cell().complete().T)
 
     # Compute neighborlist
-    if (
-        np.any(atoms.get_cell().lengths() <= 0.0001)
-        or (
-            np.any(atoms.get_pbc())
-            and np.any(_cell_heights(atoms.get_cell()) < cutoff)
-        )
-    ):
+    if np.any(atoms.get_cell().lengths() <= 0.0001) or (np.any(atoms.get_pbc()) and np.any(_cell_heights(atoms.get_cell()) < cutoff)):
         neighborlist = AseNeigborListWrapper(cutoff, atoms)
     else:
         neighborlist = asap3.FullNeighborList(cutoff, atoms)
@@ -442,6 +448,7 @@ def atoms_to_graph(atoms, cutoff):
 
     return atom_edges, atom_edges_displacement, neighborlist, inv_cell_T
 
+
 def probes_to_graph(atoms, probe_pos, cutoff, neighborlist=None, inv_cell_T=None):
     probe_edges = []
     probe_edges_displacement = []
@@ -459,18 +466,14 @@ def probes_to_graph(atoms, probe_pos, cutoff, neighborlist=None, inv_cell_T=None
         atoms_with_probes.extend(probe_atoms)
         atomic_numbers = atoms_with_probes.get_atomic_numbers()
 
-        if (
-            np.any(atoms.get_cell().lengths() <= 0.0001)
-            or (
-                np.any(atoms.get_pbc())
-                and np.any(_cell_heights(atoms.get_cell()) < cutoff)
-            )
+        if np.any(atoms.get_cell().lengths() <= 0.0001) or (
+            np.any(atoms.get_pbc()) and np.any(_cell_heights(atoms.get_cell()) < cutoff)
         ):
             neighborlist = AseNeigborListWrapper(cutoff, atoms_with_probes)
         else:
             neighborlist = asap3.FullNeighborList(cutoff, atoms_with_probes)
 
-        results = [neighborlist.get_neighbors(i+len(atoms), cutoff) for i in range(num_probes)]
+        results = [neighborlist.get_neighbors(i + len(atoms), cutoff) for i in range(num_probes)]
 
     atom_positions = atoms.get_positions()
     for i, (neigh_idx, neigh_vec, _) in enumerate(results):
@@ -491,6 +494,7 @@ def probes_to_graph(atoms, probe_pos, cutoff, neighborlist=None, inv_cell_T=None
 
     return probe_edges, probe_edges_displacement
 
+
 def collate_list_of_dicts(list_of_dicts, pin_memory=False):
     # Convert from "list of dicts" to "dict of lists"
     dict_of_lists = {k: [dic[k] for dic in list_of_dicts] for k in list_of_dicts[0]}
@@ -504,12 +508,14 @@ def collate_list_of_dicts(list_of_dicts, pin_memory=False):
     collated = {k: pin(pad_and_stack(dict_of_lists[k])) for k in dict_of_lists}
     return collated
 
+
 class CollateFuncRandomSample:
-    def __init__(self, cutoff, num_probes, pin_memory=True, set_pbc_to=None):
+    def __init__(self, cutoff, num_probes, pin_memory=True, set_pbc_to=None, core_cutoff=None):
         self.num_probes = num_probes
         self.cutoff = cutoff
         self.pin_memory = pin_memory
         self.set_pbc = set_pbc_to
+        self.core_cutoff = core_cutoff
 
     def __call__(self, input_dicts: List):
         graphs = []
@@ -520,15 +526,19 @@ class CollateFuncRandomSample:
             else:
                 atoms = i["atoms"]
 
-            graphs.append(atoms_and_probe_sample_to_graph_dict(
-                i["density"],
-                atoms,
-                i["grid_position"],
-                self.cutoff,
-                self.num_probes,
-            ))
+            graphs.append(
+                atoms_and_probe_sample_to_graph_dict(
+                    i["density"],
+                    atoms,
+                    i["grid_position"],
+                    self.cutoff,
+                    self.num_probes,
+                    self.core_cutoff,
+                )
+            )
 
         return collate_list_of_dicts(graphs, pin_memory=self.pin_memory)
+
 
 class CollateFuncAtoms:
     def __init__(self, cutoff, pin_memory=True, set_pbc_to=None):
@@ -545,10 +555,12 @@ class CollateFuncAtoms:
             else:
                 atoms = i["atoms"]
 
-            graphs.append(atoms_to_graph_dict(
-                atoms,
-                self.cutoff,
-            ))
+            graphs.append(
+                atoms_to_graph_dict(
+                    atoms,
+                    self.cutoff,
+                )
+            )
 
         return collate_list_of_dicts(graphs, pin_memory=self.pin_memory)
 
@@ -583,6 +595,7 @@ def _decompress_tarmember(tar, tarinfo):
 
     return filecontent
 
+
 def _decompress_file(filepath):
     if filepath.endswith(".zz"):
         with open(filepath, "rb") as fp:
@@ -598,6 +611,7 @@ def _decompress_file(filepath):
         with open(filepath, mode="rb") as fp:
             filecontent = fp.read()
     return filecontent
+
 
 def _read_vasp(filecontent):
     # Write to tmp file and read using ASE
@@ -621,5 +635,5 @@ def _read_cube(filecontent):
     origin = cube["origin"][0:3]
     # by convention the cube electron density is given in electrons/Bohr^3,
     # and ase read_cube does not convert to electrons/Å^3, so we do the conversion here
-    cube["data"] *= 1.0 / ase.units.Bohr ** 3
+    cube["data"] *= 1.0 / ase.units.Bohr**3
     return cube["data"], cube["atoms"], origin

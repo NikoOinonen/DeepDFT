@@ -35,6 +35,12 @@ def get_arguments(arg_list=None):
         help="Atomic interaction cutoff distance [Å]",
     )
     parser.add_argument(
+        "--core_cutoff",
+        type=float,
+        default=None,
+        help="Points are not sampled with cutoff distance from nuclei [Å]",
+    )
+    parser.add_argument(
         "--split_file",
         type=str,
         default=None,
@@ -249,12 +255,12 @@ def main():
         2,
         num_workers=4,
         sampler=torch.utils.data.RandomSampler(datasplits["train"]),
-        collate_fn=dataset.CollateFuncRandomSample(args.cutoff, 1000, pin_memory=False, set_pbc_to=set_pbc),
+        collate_fn=dataset.CollateFuncRandomSample(args.cutoff, 1000, pin_memory=False, set_pbc_to=set_pbc, core_cutoff=args.core_cutoff),
     )
     val_loader = torch.utils.data.DataLoader(
         datasplits["validation"],
         2,
-        collate_fn=dataset.CollateFuncRandomSample(args.cutoff, 5000, pin_memory=False, set_pbc_to=set_pbc),
+        collate_fn=dataset.CollateFuncRandomSample(args.cutoff, 5000, pin_memory=False, set_pbc_to=set_pbc, core_cutoff=args.core_cutoff),
         num_workers=0,
     )
     logging.info("Preloading validation batch")
@@ -275,7 +281,7 @@ def main():
     scheduler_fn = lambda step: 0.96 ** (step / 100000)
     scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, scheduler_fn)
 
-    log_interval = 1000
+    log_interval = 5000
     running_loss = torch.tensor(0.0, device=device)
     running_loss_count = torch.tensor(0, device=device)
     best_val_mae = np.inf
