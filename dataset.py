@@ -345,31 +345,60 @@ class DensityGridIterator:
             raise StopIteration
 
 
-def atoms_and_probe_sample_to_graph_dict(density, atoms, grid_pos, cutoff, num_probes, core_cutoff=None):
+def atoms_and_probe_sample_to_graph_dict(density, atoms, grid_pos, cutoff, num_probes, sampling_bounds=None):
     # Sample probes on the calculated grid
-    probe_pos = []
-    probe_target = []
-    total_points = 0
-    while True:
-        probe_choice_max = np.prod(grid_pos.shape[0:3])
-        probe_choice = np.random.randint(probe_choice_max, size=(num_probes - total_points))
-        probe_choice = np.unravel_index(probe_choice, grid_pos.shape[0:3])
-        probe_pos_candidate = grid_pos[probe_choice]
-        if core_cutoff:
-            dist = cdist(probe_pos_candidate, atoms.get_positions())
-            mask = np.all(dist > core_cutoff, axis=1)
-            probe_choice = tuple(p[mask] for p in probe_choice)
+    if sampling_bounds is not None:
+
+        r_min, r_max = sampling_bounds
+        origin = grid_pos[0, 0, 0]
+        atom_pos = atoms.get_positions() - origin
+        lattice = np.diag(atoms.get_cell()) # Assuming an orthogonal lattice here
+
+        probe_pos = []
+        probe_target = []
+        total_points = 0
+
+        while True:
+
+            n_sample = num_probes - total_points
+
+            # Pick random atoms positions to use as central points
+            atom_ind = np.random.randint(atom_pos.shape[0], size=n_sample)
+            r_atom = atom_pos[atom_ind]
+
+            # Pick points in random direction and distance within bounds from the central atom positions
+            r_offset = np.random.normal(0, 1, size=(n_sample, 3))
+            r_offset = r_offset / np.linalg.norm(r_offset, ord=2, axis=1)[:, None]
+            r_offset = (r_min + (r_max - r_min) * np.random.rand(n_sample, 1)) * r_offset
+            probe_pos_candidate = r_atom + r_offset
+
+            # Periodic boundaries
+            probe_pos_candidate = np.mod(probe_pos_candidate, lattice)
+
+            # Check that any of the points are not inside the minimum distance for other atoms
+            dist = cdist(probe_pos_candidate, atom_pos)
+            mask = np.all(dist > r_min, axis=1)
+            probe_pos_candidate = probe_pos_candidate[mask]
+
+            # Convert positions to closest indices on grid
+            frac_coord = probe_pos_candidate / (lattice + 1e-6) # +1e-6 so that coords can never be exactly 1.0
+            probe_choice = np.floor(frac_coord * np.array(grid_pos.shape[:3])).astype(int)
+            probe_choice = tuple(probe_choice.T)
+
             probe_pos.append(grid_pos[probe_choice])
             probe_target.append(density[probe_choice])
-            total_points += probe_choice[0].shape[0]
-            if total_points == num_probes:
+
+            total_points += len(probe_choice[0])
+            if total_points == num_probes: # Repeat until there are enough points
                 probe_pos = np.concatenate(probe_pos, axis=0)
                 probe_target = np.concatenate(probe_target, axis=0)
                 break
-        else:
-            probe_pos = probe_pos_candidate
-            probe_target = density[probe_choice]
-            break
+    else:
+        probe_choice_max = np.prod(grid_pos.shape[0:3])
+        probe_choice = np.random.randint(probe_choice_max, size=(num_probes - total_points))
+        probe_choice = np.unravel_index(probe_choice, grid_pos.shape[0:3])
+        probe_pos = grid_pos[probe_choice]
+        probe_target = density[probe_choice]
 
     atom_edges, atom_edges_displacement, neighborlist, inv_cell_T = atoms_to_graph(atoms, cutoff)
     probe_edges, probe_edges_displacement = probes_to_graph(atoms, probe_pos, cutoff, neighborlist=neighborlist, inv_cell_T=inv_cell_T)
@@ -510,12 +539,12 @@ def collate_list_of_dicts(list_of_dicts, pin_memory=False):
 
 
 class CollateFuncRandomSample:
-    def __init__(self, cutoff, num_probes, pin_memory=True, set_pbc_to=None, core_cutoff=None):
+    def __init__(self, cutoff, num_probes, pin_memory=True, set_pbc_to=None, sampling_bounds=None):
         self.num_probes = num_probes
         self.cutoff = cutoff
         self.pin_memory = pin_memory
         self.set_pbc = set_pbc_to
-        self.core_cutoff = core_cutoff
+        self.sampling_bounds = sampling_bounds
 
     def __call__(self, input_dicts: List):
         graphs = []
@@ -533,7 +562,7 @@ class CollateFuncRandomSample:
                     i["grid_position"],
                     self.cutoff,
                     self.num_probes,
-                    self.core_cutoff,
+                    self.sampling_bounds,
                 )
             )
 
